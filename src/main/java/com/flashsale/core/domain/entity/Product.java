@@ -26,6 +26,10 @@ public class Product {
     private String title;
 
     private String description;
+    
+    private String imageUrl;
+    
+    private String category;
 
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal price;

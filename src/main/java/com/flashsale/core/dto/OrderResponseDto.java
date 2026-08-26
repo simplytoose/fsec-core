@@ -1,19 +1,18 @@
 package com.flashsale.core.dto;
 
 import com.flashsale.core.domain.enums.OrderStatus;
-import lombok.Builder;
-import lombok.Data;
-
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
-@Data
-@Builder
-public class OrderResponseDto {
-    private UUID id;
-    private UUID userId;
-    private OrderStatus status;
-    private BigDecimal totalAmount;
-    private OffsetDateTime createdAt;
-}
+public record OrderResponseDto(
+    UUID id,
+    UUID userId,
+    OrderStatus status,
+    BigDecimal totalAmount,
+    String shippingAddress,
+    String paymentMethod,
+    List<OrderItemResponseDto> items,
+    OffsetDateTime createdAt
+) {}

@@ -30,6 +30,10 @@ public class Order {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderStatus status;
+    
+    private String shippingAddress;
+    
+    private String paymentMethod;
 
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal totalAmount;

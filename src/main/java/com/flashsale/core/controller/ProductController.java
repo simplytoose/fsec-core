@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/v1/products")
@@ -20,6 +21,7 @@ public class ProductController {
     private final ProductService productService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public ProductResponseDto createProduct(@Valid @RequestBody CreateProductDto dto) {
         return productService.createProduct(dto);
@@ -33,5 +35,18 @@ public class ProductController {
     @GetMapping
     public Page<ProductResponseDto> getProducts(Pageable pageable) {
         return productService.getAllProducts(pageable);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ProductResponseDto updateProduct(@PathVariable UUID id, @Valid @RequestBody CreateProductDto dto) {
+        return productService.updateProduct(id, dto);
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteProduct(@PathVariable UUID id) {
+        productService.deleteProduct(id);
     }
 }
