@@ -30,3 +30,7 @@ Thumbs.db
 
 # Docker volumes (if used locally)
 docker-data/
+
+# Agent skills
+.agents/skills/
+skills-lock.json
