@@ -9,6 +9,7 @@ import com.flashsale.core.dto.CreateOrderDto;
 import com.flashsale.core.dto.OrderItemResponseDto;
 import com.flashsale.core.dto.OrderResponseDto;
 import com.flashsale.core.exception.InsufficientStockException;
+import com.flashsale.core.exception.SystemBusyException;
 import com.flashsale.core.repository.OrderRepository;
 import com.flashsale.core.repository.ProductRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -57,7 +58,7 @@ public class OrderService {
             // waitTime = 1000ms, leaseTime = 3000ms
             isLocked = multiLock.tryLock(1000, 3000, TimeUnit.MILLISECONDS);
             if (!isLocked) {
-                throw new RuntimeException("System is busy, could not acquire locks for products");
+                throw new SystemBusyException("System is busy, could not acquire locks for products");
             }
 
             // Verify all stocks before deducting
@@ -93,7 +94,7 @@ public class OrderService {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while trying to acquire lock", e);
+            throw new SystemBusyException("Interrupted while trying to acquire lock");
         } finally {
             if (isLocked) {
                 multiLock.unlock();
