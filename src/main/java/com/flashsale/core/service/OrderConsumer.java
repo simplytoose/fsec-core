@@ -11,6 +11,9 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityNotFoundException;
+import com.flashsale.core.domain.entity.Product;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -34,14 +37,20 @@ public class OrderConsumer {
                     .build();
 
             if (orderEvent.getItems() != null) {
-                orderEvent.getItems().forEach(itemEvent -> {
+                for (var itemEvent : orderEvent.getItems()) {
+                    Product product = productRepository.findById(itemEvent.getProductId())
+                            .orElseThrow(() -> new EntityNotFoundException("Product not found: " + itemEvent.getProductId()));
+                    
+                    product.setStock(product.getStock() - itemEvent.getQuantity());
+                    productRepository.save(product);
+
                     OrderItem orderItem = OrderItem.builder()
-                            .product(productRepository.getReferenceById(itemEvent.getProductId()))
+                            .product(product)
                             .quantity(itemEvent.getQuantity())
                             .priceAtPurchase(itemEvent.getPrice())
                             .build();
                     order.addItem(orderItem);
-                });
+                }
             }
 
             orderRepository.save(order);

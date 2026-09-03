@@ -21,7 +21,13 @@ import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.flashsale.core.dto.OrderEvent;
+import com.flashsale.core.dto.OrderItemEvent;
+import com.flashsale.core.dto.ProductResponseDto;
+
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -36,6 +42,8 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final RedissonClient redissonClient;
+    private final OrderProducer orderProducer;
+    private final ProductService productService;
 
     public OrderResponseDto createOrder(CreateOrderDto dto, UUID userId) {
         if (dto.items() == null || dto.items().isEmpty()) {
@@ -76,29 +84,75 @@ public class OrderService {
                 stockBucket.set(stockBucket.get() - item.quantity());
             }
 
-            try {
-                // Save to DB
-                return saveOrderToDatabase(dto, userId);
-            } catch (Exception e) {
-                // Compensation: Rollback stock in Redis if DB save fails
-                log.error("Failed to save order to database, rolling back Redis stock.", e);
-                for (CartItemDto item : sortedItems) {
-                    RBucket<Integer> stockBucket = redissonClient.getBucket("product:stock:" + item.productId());
-                    Integer currentStock = stockBucket.get();
-                    if (currentStock != null) {
-                        stockBucket.set(currentStock + item.quantity());
-                    }
-                }
-                throw new RuntimeException("Database error during order creation", e);
-            }
-
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new SystemBusyException("Interrupted while trying to acquire lock");
         } finally {
             if (isLocked) {
-                multiLock.unlock();
+                multiLock.unlock(); // Release lock immediately so next request proceeds in < 1ms
             }
+        }
+
+        try {
+            UUID orderId = UUID.randomUUID();
+            BigDecimal totalAmount = BigDecimal.ZERO;
+            List<OrderItemResponseDto> responseItems = new ArrayList<>();
+            List<OrderItemEvent> eventItems = new ArrayList<>();
+
+            for (CartItemDto itemDto : sortedItems) {
+                ProductResponseDto product = productService.getProductById(itemDto.productId());
+                BigDecimal itemTotal = product.price().multiply(BigDecimal.valueOf(itemDto.quantity()));
+                totalAmount = totalAmount.add(itemTotal);
+
+                responseItems.add(new OrderItemResponseDto(
+                        UUID.randomUUID(),
+                        product.id(),
+                        product.title(),
+                        itemDto.quantity(),
+                        product.price()
+                ));
+
+                eventItems.add(OrderItemEvent.builder()
+                        .productId(product.id())
+                        .quantity(itemDto.quantity())
+                        .price(product.price())
+                        .build());
+            }
+
+            OrderEvent orderEvent = OrderEvent.builder()
+                    .orderId(orderId)
+                    .userId(userId)
+                    .status(OrderStatus.PENDING)
+                    .shippingAddress(dto.shippingAddress())
+                    .paymentMethod(dto.paymentMethod())
+                    .totalAmount(totalAmount)
+                    .items(eventItems)
+                    .build();
+
+            orderProducer.publishOrderEvent(orderEvent);
+
+            return new OrderResponseDto(
+                    orderId,
+                    userId,
+                    OrderStatus.PENDING,
+                    totalAmount,
+                    dto.shippingAddress(),
+                    dto.paymentMethod(),
+                    responseItems,
+                    OffsetDateTime.now()
+            );
+
+        } catch (Exception e) {
+            // Compensation: Rollback stock in Redis if queueing fails
+            log.error("Failed to enqueue order event, rolling back Redis stock.", e);
+            for (CartItemDto item : sortedItems) {
+                RBucket<Integer> stockBucket = redissonClient.getBucket("product:stock:" + item.productId());
+                Integer currentStock = stockBucket.get();
+                if (currentStock != null) {
+                    stockBucket.set(currentStock + item.quantity());
+                }
+            }
+            throw new RuntimeException("Error during order queueing", e);
         }
     }
 

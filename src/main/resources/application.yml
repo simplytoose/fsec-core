@@ -2,6 +2,7 @@ spring:
   application:
     name: flash-sale-core
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     show-sql: false
@@ -16,6 +17,7 @@ spring:
     hikari:
       maximum-pool-size: 100
       minimum-idle: 20
+      connection-timeout: 5000
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -30,12 +32,21 @@ spring:
     username: guest
     password: guest
 
+application:
+  security:
+    bcrypt:
+      strength: 4
+
 flashsale:
   rabbitmq:
     exchange: flashsale.exchange
     queue: flashsale.order.queue
     routing-key: flashsale.order.routing.key
 
-
 server:
   port: 8080
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    accept-count: 200

@@ -13,7 +13,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +23,16 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final RedissonClient redissonClient;
+
+    private final Map<String, CachedPage> productPageCache = new ConcurrentHashMap<>();
+    private final Map<UUID, ProductResponseDto> productCache = new ConcurrentHashMap<>();
+
+    private record CachedPage(Page<ProductResponseDto> page, long expireAt) {}
+
+    private void clearCache() {
+        productPageCache.clear();
+        productCache.clear();
+    }
 
     @Transactional
     public ProductResponseDto createProduct(CreateProductDto dto) {
@@ -38,19 +50,38 @@ public class ProductService {
         RBucket<Integer> stockBucket = redissonClient.getBucket("product:stock:" + savedProduct.getId());
         stockBucket.set(savedProduct.getStock());
         
+        clearCache();
         return mapToDto(savedProduct);
     }
 
     @Transactional(readOnly = true)
     public ProductResponseDto getProductById(UUID id) {
+        ProductResponseDto cached = productCache.get(id);
+        if (cached != null) {
+            return cached;
+        }
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + id));
-        return mapToDto(product);
+        ProductResponseDto dto = mapToDto(product);
+        productCache.put(id, dto);
+        return dto;
     }
 
     @Transactional(readOnly = true)
     public Page<ProductResponseDto> getAllProducts(Pageable pageable) {
-        return productRepository.findAll(pageable).map(this::mapToDto);
+        String cacheKey = pageable.getPageNumber() + ":" + pageable.getPageSize() + ":" + pageable.getSort();
+        long now = System.currentTimeMillis();
+        CachedPage cached = productPageCache.get(cacheKey);
+        if (cached != null && cached.expireAt() > now) {
+            return cached.page();
+        }
+
+        Page<ProductResponseDto> page = productRepository.findAll(pageable).map(this::mapToDto);
+        productPageCache.put(cacheKey, new CachedPage(page, now + 5000));
+        for (ProductResponseDto p : page) {
+            productCache.put(p.id(), p);
+        }
+        return page;
     }
 
     @Transactional
@@ -72,6 +103,7 @@ public class ProductService {
         }
 
         Product savedProduct = productRepository.save(product);
+        clearCache();
         return mapToDto(savedProduct);
     }
 
@@ -84,6 +116,7 @@ public class ProductService {
         redissonClient.getBucket("product:stock:" + id).delete();
         
         productRepository.delete(product);
+        clearCache();
     }
 
     private ProductResponseDto mapToDto(Product product) {

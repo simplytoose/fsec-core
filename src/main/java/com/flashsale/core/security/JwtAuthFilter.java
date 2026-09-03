@@ -14,7 +14,11 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.flashsale.core.domain.entity.User;
+import com.flashsale.core.domain.enums.Role;
+
 import java.io.IOException;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -42,7 +46,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         userEmail = jwtService.extractUsername(jwt);
         
         if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+            UUID userId = jwtService.extractUserId(jwt);
+            String roleName = jwtService.extractRole(jwt);
+
+            UserDetails userDetails;
+            if (userId != null && roleName != null) {
+                try {
+                    Role role = Role.valueOf(roleName);
+                    userDetails = User.builder()
+                            .id(userId)
+                            .email(userEmail)
+                            .role(role)
+                            .build();
+                } catch (IllegalArgumentException ex) {
+                    userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+                }
+            } else {
+                userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+            }
             
             if (jwtService.isTokenValid(jwt, userDetails)) {
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
